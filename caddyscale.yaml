@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caddyscale
+  labels:
+    app: caddyscale
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: caddyscale
+  template:
+    metadata:
+      labels:
+        app: caddyscale
+    spec:
+      serviceAccountName: tailscale
+      volumes:
+      - name: shared-data
+        emptyDir: {}
+      containers:
+      - name: tailscale
+        image: ghcr.io/tailscale/tailscale:latest
+        volumeMounts:
+        - name: shared-data
+          mountPath: /tmp/
+        ports:
+        - containerPort: 80
+        env:
+        #- name: TS_AUTH_KEY
+        #  value: "..."
+        - name: TS_KUBE_SECRET
+          value: tailscale
+        - name: TS_USERSPACE
+          value: "true"
+        - name: "TS_EXTRA_ARGS"
+          value: "--hostname=caddyscale"
+      - name: caddy
+        image: caddy:2.6.1-alpine
+        volumeMounts:
+        - name: shared-data
+          mountPath: /var/run/tailscale/
+        command: ["caddy"]
+        args: [
+          "file-server", 
+          "--browse", 
+          "--root", 
+          "/home", 
+          "--domain", 
+          "*.<domain-alias>.ts.net"
+        ]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tailscale
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tailscale
+rules:
+- apiGroups: [""] # "" indicates the core API group
+  resources: ["secrets"]
+  # Create can not be restricted to a resource name.
+  verbs: ["create"]
+- apiGroups: [""] # "" indicates the core API group
+  resourceNames: ["tailscale"]
+  resources: ["secrets"]
+  verbs: ["get", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tailscale
+subjects:
+- kind: ServiceAccount
+  name: "tailscale"
+roleRef:
+  kind: Role
+  name: tailscale
+  apiGroup: rbac.authorization.k8s.io
+---
